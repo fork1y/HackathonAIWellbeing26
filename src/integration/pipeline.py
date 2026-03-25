@@ -8,7 +8,12 @@ optimizer and returns placeholders where later stages can plug in.
 
 from __future__ import annotations
 
-from typing import Any, NotRequired, TypedDict, cast
+from typing import Any, TypedDict, cast
+
+try:
+    from typing import NotRequired
+except ImportError:  # pragma: no cover - Python < 3.11 compatibility
+    from typing_extensions import NotRequired
 
 from src.scheduler.constraints import DAY_ORDER, Commitment, ScheduledTask, SleepWindow, Task
 from src.scheduler.optimizer import OptimizationResult, optimize_schedule
