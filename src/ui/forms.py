@@ -1,5 +1,3 @@
-"""Streamlit input forms for schedule and preference data."""
-
 from __future__ import annotations
 
 import json
