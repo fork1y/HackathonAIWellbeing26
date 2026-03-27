@@ -1,9 +1,8 @@
-"""Streamlit presentation helpers for schedule comparison and burnout analysis."""
-
 from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass
+from datetime import date, timedelta
 from html import escape
 from typing import Any
 
@@ -39,43 +38,49 @@ def inject_theme() -> None:
         <style>
             .stApp {
                 background:
-                    radial-gradient(circle at 8% -10%, rgba(34, 139, 120, 0.18), transparent 35%),
-                    radial-gradient(circle at 90% 0%, rgba(223, 123, 52, 0.15), transparent 33%),
-                    linear-gradient(180deg, #f4f8f5 0%, #f9f5ec 100%);
+                    radial-gradient(circle at 8% -10%, rgba(34, 139, 120, 0.12), transparent 32%),
+                    linear-gradient(180deg, #f6faf8 0%, #fcfaf4 100%);
+                color-scheme: light;
             }
-            html, body, [class*="st-"], [class*="css"] {
+            html, body, .stApp {
                 font-family: "Trebuchet MS", "Gill Sans", "Verdana", sans-serif;
             }
             h1, h2, h3, h4 {
                 font-family: "Georgia", "Palatino Linotype", serif;
                 letter-spacing: 0.2px;
             }
+            [data-testid="stToolbar"] {
+                display: none !important;
+            }
             .hero-shell {
                 border: 1px solid rgba(44, 104, 86, 0.25);
-                background: linear-gradient(120deg, #d8efe6 0%, #f8e7d1 100%);
+                background: linear-gradient(120deg, #e3f4ee 0%, #fbf0df 100%);
                 border-radius: 18px;
-                padding: 1.1rem 1.2rem;
+                padding: 1.4rem 1.5rem;
                 margin-bottom: 1rem;
                 animation: riseIn .6s ease;
             }
             .hero-title {
-                font-size: 1.55rem;
+                font-size: 2.45rem;
                 font-weight: 700;
-                margin-bottom: 0.35rem;
+                line-height: 1.05;
+                margin-bottom: 0.45rem;
                 color: #183f34;
+                text-align: left;
             }
             .hero-subtitle {
-                font-size: 0.97rem;
+                font-size: 1.02rem;
                 color: #21483d;
                 line-height: 1.45;
+                text-align: left;
             }
             .score-tile {
                 border: 2px solid rgba(44, 104, 86, 0.22);
                 border-radius: 14px;
-                padding: 0.85rem 1rem;
+                padding: 1rem 1.1rem;
                 background: rgba(255, 255, 255, 0.8);
                 animation: riseIn .55s ease;
-                min-height: 140px;
+                min-height: 132px;
             }
             .tile-title {
                 font-size: 0.87rem;
@@ -102,6 +107,111 @@ def inject_theme() -> None:
                 margin-top: 0.45rem;
                 font-size: 0.84rem;
                 color: #3f3f3f;
+                line-height: 1.35;
+            }
+            .reason-panel {
+                border: 1px solid rgba(44, 104, 86, 0.22);
+                border-radius: 12px;
+                background: rgba(255, 255, 255, 0.86);
+                padding: 0.75rem 0.9rem;
+                min-height: 140px;
+            }
+            .reason-title {
+                font-weight: 700;
+                margin-bottom: 0.45rem;
+                color: #1f3e34;
+            }
+            .reason-line {
+                margin: 0.22rem 0;
+                line-height: 1.35;
+                color: #2f2f2f;
+                font-size: 0.95rem;
+            }
+            .calendar-shell {
+                border: 1px solid rgba(37, 69, 60, 0.2);
+                border-radius: 14px;
+                background: rgba(255, 255, 255, 0.9);
+                padding: 0.8rem 0.8rem 0.5rem 0.8rem;
+            }
+            .calendar-board {
+                display: grid;
+                grid-template-columns: 70px repeat(7, minmax(0, 1fr));
+                border: 1px solid rgba(21, 49, 40, 0.18);
+                border-radius: 10px;
+                overflow: hidden;
+                min-height: 760px;
+            }
+            .calendar-corner {
+                border-right: 1px solid rgba(21, 49, 40, 0.14);
+                border-bottom: 1px solid rgba(21, 49, 40, 0.14);
+                background: #f3f7f5;
+            }
+            .calendar-header {
+                border-left: 1px solid rgba(21, 49, 40, 0.14);
+                border-bottom: 1px solid rgba(21, 49, 40, 0.14);
+                background: #f3f7f5;
+                padding: 0.35rem 0.3rem;
+                text-align: center;
+            }
+            .calendar-day-name {
+                font-size: 0.72rem;
+                text-transform: uppercase;
+                letter-spacing: 0.45px;
+                color: #35584d;
+                font-weight: 700;
+            }
+            .calendar-date {
+                font-size: 1rem;
+                font-weight: 700;
+                color: #1d302b;
+                margin-top: 0.1rem;
+            }
+            .calendar-time-col {
+                position: relative;
+                border-right: 1px solid rgba(21, 49, 40, 0.14);
+                background: #fdfefd;
+                min-height: 700px;
+            }
+            .calendar-time-label {
+                position: absolute;
+                left: 6px;
+                transform: translateY(-50%);
+                font-size: 0.68rem;
+                color: #52635c;
+                white-space: nowrap;
+            }
+            .calendar-day-col {
+                position: relative;
+                min-height: 700px;
+                border-left: 1px solid rgba(21, 49, 40, 0.14);
+                background: repeating-linear-gradient(
+                    to bottom,
+                    rgba(24, 49, 41, 0.08) 0,
+                    rgba(24, 49, 41, 0.08) 1px,
+                    transparent 1px,
+                    transparent calc(100% / 18)
+                );
+            }
+            .calendar-event {
+                position: absolute;
+                left: 4px;
+                right: 4px;
+                border-radius: 8px;
+                padding: 0.28rem 0.35rem;
+                font-size: 0.7rem;
+                line-height: 1.22;
+                overflow: hidden;
+                border: 1px solid rgba(0, 0, 0, 0.08);
+            }
+            .calendar-event.task {
+                background: #dcecff;
+                border-left: 4px solid #2b6cb0;
+                color: #1d3f63;
+            }
+            .calendar-event.fixed {
+                background: #ffe8d2;
+                border-left: 4px solid #c05621;
+                color: #5a2f13;
             }
             .week-grid {
                 display: grid;
@@ -160,6 +270,12 @@ def inject_theme() -> None:
                 padding-top: 0.2rem;
             }
             @media (max-width: 980px) {
+                .calendar-shell {
+                    overflow-x: auto;
+                }
+                .calendar-board {
+                    min-width: 1050px;
+                }
                 .week-grid {
                     grid-template-columns: repeat(2, minmax(0, 1fr));
                 }
@@ -185,10 +301,10 @@ def render_header() -> None:
     st.markdown(
         """
         <section class="hero-shell">
-            <div class="hero-title">BalanceAI Demo</div>
+            <div class="hero-title">BalanceAI</div>
             <div class="hero-subtitle">
-                Enter class/work constraints and assignment deadlines, then compare a
-                deadline-clustered baseline plan against the AI-optimized healthier schedule.
+                Burnout-aware schedule planner for students.
+                Add commitments and tasks, then compare baseline vs AI-optimized weekly plans.
             </div>
         </section>
         """,
@@ -224,13 +340,12 @@ def render_results(payload: dict[str, Any], optimized_result: dict[str, Any]) ->
     st.subheader("2) Burnout Risk")
     _render_score_cards(before_assessment, after_assessment)
 
+    st.markdown("**Top Risk Reasons**")
     reasons_left, reasons_right = st.columns(2)
     with reasons_left:
-        st.markdown("**Top Risk Reasons (Before)**")
-        _render_reason_list(before_assessment.reasons)
+        _render_reason_panel("Before", before_assessment.reasons)
     with reasons_right:
-        st.markdown("**Top Risk Reasons (After)**")
-        _render_reason_list(after_assessment.reasons)
+        _render_reason_panel("After", after_assessment.reasons)
 
     st.subheader("3) Before vs After Schedule Comparison")
     _render_change_summary(
@@ -246,19 +361,28 @@ def render_results(payload: dict[str, Any], optimized_result: dict[str, Any]) ->
         after_schedule=after_schedule,
     )
 
-    before_tab, after_tab = st.tabs(["Before Schedule", "After Schedule"])
-    with before_tab:
-        _render_schedule_grid(
+    schedule_cards_tab, calendar_tab = st.tabs(["Schedule Cards", "Calendar"])
+    with schedule_cards_tab:
+        before_tab, after_tab = st.tabs(["Before Schedule", "After Schedule"])
+        with before_tab:
+            _render_schedule_grid(
+                commitments=payload.get("commitments", []),
+                scheduled_tasks=before_schedule,
+            )
+            _render_unscheduled_tasks(before_unscheduled, empty_message="All tasks were placed.")
+        with after_tab:
+            _render_schedule_grid(
+                commitments=payload.get("commitments", []),
+                scheduled_tasks=after_schedule,
+            )
+            _render_unscheduled_tasks(after_unscheduled, empty_message="All tasks were placed.")
+
+    with calendar_tab:
+        _render_calendar_workspace(
             commitments=payload.get("commitments", []),
-            scheduled_tasks=before_schedule,
+            before_schedule=before_schedule,
+            after_schedule=after_schedule,
         )
-        _render_unscheduled_tasks(before_unscheduled, empty_message="All tasks were placed.")
-    with after_tab:
-        _render_schedule_grid(
-            commitments=payload.get("commitments", []),
-            scheduled_tasks=after_schedule,
-        )
-        _render_unscheduled_tasks(after_unscheduled, empty_message="All tasks were placed.")
 
 
 def build_baseline_schedule(payload: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
@@ -458,7 +582,6 @@ def _render_score_card(label: str, assessment: BurnoutAssessment) -> None:
             <div class="tile-title">{escape(label)}</div>
             <div class="tile-score" style="color:{color};">{assessment.score}</div>
             <span class="risk-pill" style="background:{color};">{assessment.level}</span>
-            <div class="tile-note">Top signal: {escape(assessment.reasons[0])}</div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -481,11 +604,22 @@ def _render_delta_card(delta_note: str, unscheduled_note: str) -> None:
     )
 
 
-def _render_reason_list(reasons: list[str]) -> None:
-    """Render a markdown list for risk explanations."""
+def _render_reason_panel(label: str, reasons: list[str]) -> None:
+    """Render cleaner reason cards for burnout explanations."""
 
-    reason_lines = "\n".join(f"- {reason}" for reason in reasons)
-    st.markdown(reason_lines)
+    reason_lines = "".join(
+        f"<div class='reason-line'>{index}. {escape(reason)}</div>"
+        for index, reason in enumerate(reasons, start=1)
+    )
+    st.markdown(
+        f"""
+        <div class="reason-panel">
+            <div class="reason-title">{escape(label)}</div>
+            {reason_lines}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 def _render_change_summary(
@@ -618,6 +752,160 @@ def _render_unscheduled_tasks(tasks: list[dict[str, Any]], *, empty_message: str
 
     st.warning(f"{len(tasks)} task(s) were not placed.")
     st.dataframe(pd.DataFrame(tasks), use_container_width=True, hide_index=True)
+
+
+def _render_calendar_workspace(
+    *,
+    commitments: list[dict[str, Any]],
+    before_schedule: list[dict[str, Any]],
+    after_schedule: list[dict[str, Any]],
+) -> None:
+    """Render a larger, date-based calendar view with plan selection."""
+
+    st.markdown("**Weekly Calendar**")
+
+    controls_left, controls_mid, controls_right = st.columns([2.2, 1.3, 1.5])
+    with controls_left:
+        selected_date = st.date_input(
+            "Week reference date",
+            value=_week_monday(date.today()),
+            help="Any day in the week. The calendar will snap to Monday.",
+            key="calendar_reference_date",
+        )
+    with controls_mid:
+        selected_plan = st.radio(
+            "Calendar version",
+            options=["Before", "After"],
+            index=1,
+            horizontal=True,
+            key="calendar_version_toggle",
+        )
+    with controls_right:
+        include_commitments = st.checkbox(
+            "Include classes/work",
+            value=True,
+            key="calendar_include_commitments",
+        )
+
+    week_start = _week_monday(selected_date)
+    week_end = week_start + timedelta(days=6)
+    st.caption(
+        f"Showing week: {week_start.strftime('%b %d, %Y')} - {week_end.strftime('%b %d, %Y')}"
+    )
+    if st.button(
+        f"Choose This Calendar ({selected_plan})",
+        type="primary",
+        use_container_width=True,
+        key="choose_calendar_btn",
+    ):
+        st.session_state["chosen_calendar_plan"] = selected_plan
+        st.success(f"{selected_plan} calendar selected.")
+
+    chosen_plan = st.session_state.get("chosen_calendar_plan")
+    if chosen_plan:
+        st.caption(f"Current selected calendar: {chosen_plan}")
+
+    selected_tasks = before_schedule if selected_plan == "Before" else after_schedule
+    selected_commitments = commitments if include_commitments else []
+
+    _render_large_week_calendar(
+        week_start=week_start,
+        commitments=selected_commitments,
+        scheduled_tasks=selected_tasks,
+    )
+
+
+def _render_large_week_calendar(
+    *,
+    week_start: date,
+    commitments: list[dict[str, Any]],
+    scheduled_tasks: list[dict[str, Any]],
+) -> None:
+    """Render a large weekly timeline with date headers and hour rows."""
+
+    calendar_start = 6.0
+    calendar_end = 24.0
+    total_hours = calendar_end - calendar_start
+    hours = list(range(int(calendar_start), int(calendar_end)))
+
+    day_blocks: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for commitment in commitments:
+        day = commitment.get("day")
+        if day in DAY_ORDER:
+            day_blocks[day].append(
+                {
+                    "kind": "fixed",
+                    "title": str(commitment["title"]),
+                    "start": float(commitment["start"]),
+                    "end": float(commitment["end"]),
+                }
+            )
+    for task in scheduled_tasks:
+        day = task.get("day")
+        if day in DAY_ORDER:
+            day_blocks[day].append(
+                {
+                    "kind": "task",
+                    "title": str(task["title"]),
+                    "start": float(task["start"]),
+                    "end": float(task["end"]),
+                }
+            )
+
+    for day in DAY_NAMES:
+        day_blocks[day].sort(key=lambda block: (block["start"], block["end"], block["title"]))
+
+    html_parts = ["<section class='calendar-shell'><div class='calendar-board'>"]
+    html_parts.append("<div class='calendar-corner'></div>")
+
+    for day in DAY_NAMES:
+        day_date = week_start + timedelta(days=DAY_ORDER[day])
+        html_parts.append(
+            "<div class='calendar-header'>"
+            f"<div class='calendar-day-name'>{escape(day)}</div>"
+            f"<div class='calendar-date'>{escape(day_date.strftime('%b %d'))}</div>"
+            "</div>"
+        )
+
+    html_parts.append("<div class='calendar-time-col'>")
+    for hour in hours:
+        top_pct = ((hour - calendar_start) / total_hours) * 100
+        html_parts.append(
+            f"<div class='calendar-time-label' style='top:{top_pct:.3f}%;'>"
+            f"{escape(_format_hour(float(hour)))}"
+            "</div>"
+        )
+    html_parts.append("</div>")
+
+    for day in DAY_NAMES:
+        html_parts.append("<div class='calendar-day-col'>")
+        for block in day_blocks[day]:
+            clipped_start = max(block["start"], calendar_start)
+            clipped_end = min(block["end"], calendar_end)
+            if clipped_end <= calendar_start or clipped_start >= calendar_end:
+                continue
+            if clipped_end <= clipped_start:
+                continue
+
+            top_pct = ((clipped_start - calendar_start) / total_hours) * 100
+            height_pct = max(((clipped_end - clipped_start) / total_hours) * 100, 2.5)
+            html_parts.append(
+                f"<div class='calendar-event {escape(block['kind'])}' "
+                f"style='top:{top_pct:.3f}%; height:{height_pct:.3f}%;'>"
+                f"<div>{escape(block['title'])}</div>"
+                f"<div>{escape(_format_time_range(block['start'], block['end']))}</div>"
+                "</div>"
+            )
+        html_parts.append("</div>")
+
+    html_parts.append("</div></section>")
+    st.markdown("".join(html_parts), unsafe_allow_html=True)
+
+
+def _week_monday(raw_date: date) -> date:
+    """Return Monday for the week containing the supplied date."""
+
+    return raw_date - timedelta(days=raw_date.weekday())
 
 
 def _resolve_settings(payload: dict[str, Any]) -> dict[str, float]:
@@ -990,3 +1278,4 @@ def _format_placement_chunks(chunks: list[dict[str, Any]]) -> str:
         for chunk in chunks
     ]
     return "; ".join(formatted)
+
