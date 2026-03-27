@@ -14,6 +14,7 @@ from src.scheduler.constraints import DAY_ORDER
 
 
 DAY_NAMES = sorted(DAY_ORDER, key=DAY_ORDER.get)
+DEADLINE_OPTIONS = ["", *DAY_NAMES]
 DEFAULT_SAMPLE_PATH = Path(__file__).resolve().parents[2] / "data" / "sample_input.json"
 DAY_ALIASES = {
     "mon": "Mon",
@@ -69,6 +70,7 @@ def render_input_panel(sample_payload: dict[str, Any]) -> tuple[dict[str, Any], 
     )
 
     with commitments_tab:
+        st.caption("Time format: 24-hour decimal values (e.g., 9.5 = 9:30 AM, 13.5 = 1:30 PM).")
         commitments_df = _initial_editor_frame(
             st.session_state["ui_commitments"],
             ["title", "day", "start", "end"],
@@ -84,7 +86,7 @@ def render_input_panel(sample_payload: dict[str, Any]) -> tuple[dict[str, Any], 
                 "title": st.column_config.TextColumn("Title", required=True),
                 "day": st.column_config.SelectboxColumn("Day", options=DAY_NAMES, required=True),
                 "start": st.column_config.NumberColumn(
-                    "Start",
+                    "Start (24h)",
                     min_value=0.0,
                     max_value=24.0,
                     step=0.5,
@@ -92,7 +94,7 @@ def render_input_panel(sample_payload: dict[str, Any]) -> tuple[dict[str, Any], 
                     required=True,
                 ),
                 "end": st.column_config.NumberColumn(
-                    "End",
+                    "End (24h)",
                     min_value=0.0,
                     max_value=24.0,
                     step=0.5,
@@ -104,10 +106,11 @@ def render_input_panel(sample_payload: dict[str, Any]) -> tuple[dict[str, Any], 
         st.session_state["ui_commitments"] = _coerce_commitments(edited_commitments)
 
     with tasks_tab:
+        st.caption("Leave deadline blank if a task has no strict day (it will be treated as week-end).")
         tasks_df = _initial_editor_frame(
             st.session_state["ui_tasks"],
             ["title", "duration", "deadline_day"],
-            {"title": "", "duration": 1.0, "deadline_day": "Mon"},
+            {"title": "", "duration": 1.0, "deadline_day": ""},
         )
         edited_tasks = st.data_editor(
             tasks_df,
@@ -126,52 +129,56 @@ def render_input_panel(sample_payload: dict[str, Any]) -> tuple[dict[str, Any], 
                     required=True,
                 ),
                 "deadline_day": st.column_config.SelectboxColumn(
-                    "Deadline Day",
-                    options=DAY_NAMES,
-                    required=True,
+                    "Deadline Day (optional)",
+                    options=DEADLINE_OPTIONS,
+                    required=False,
                 ),
             },
         )
         st.session_state["ui_tasks"] = _coerce_tasks(edited_tasks)
 
     with settings_tab:
+        st.caption("All time values below are in 24-hour decimal format.")
         left, right = st.columns(2)
 
         with left:
             st.markdown("**Workload Preferences**")
             st.number_input(
-                "Max study hours per day",
+                "Max study hours per day (hours)",
                 min_value=1.0,
                 max_value=16.0,
                 step=0.5,
                 key="ui_max_daily_hours",
+                help="Example: 8.0 means up to 8 hours of task work in one day.",
             )
             st.number_input(
-                "Preferred study start",
+                "Preferred study start (24h)",
                 min_value=0.0,
                 max_value=23.5,
                 step=0.5,
                 key="ui_workday_start",
+                help="Example: 7.0 = 7:00 AM, 13.5 = 1:30 PM.",
             )
             st.number_input(
-                "Preferred study end",
+                "Preferred study end (24h)",
                 min_value=0.5,
                 max_value=24.0,
                 step=0.5,
                 key="ui_workday_end",
+                help="Example: 22.0 = 10:00 PM.",
             )
 
         with right:
             st.markdown("**Sleep + Search Settings**")
             st.number_input(
-                "Sleep start",
+                "Sleep start (24h)",
                 min_value=0.0,
                 max_value=24.0,
                 step=0.5,
                 key="ui_sleep_start",
             )
             st.number_input(
-                "Sleep end",
+                "Sleep end (24h)",
                 min_value=0.0,
                 max_value=24.0,
                 step=0.5,
@@ -286,20 +293,22 @@ def _coerce_tasks(frame: pd.DataFrame) -> list[dict[str, Any]]:
             {
                 "title": title,
                 "duration": _to_float(row.get("duration"), fallback=0.0),
-                "deadline_day": _normalize_day(row.get("deadline_day")),
+                "deadline_day": _normalize_day(row.get("deadline_day"), allow_empty=True),
             }
         )
 
     return tasks
 
 
-def _normalize_day(raw_day: Any) -> str:
+def _normalize_day(raw_day: Any, *, allow_empty: bool = False) -> str:
     """Normalize day strings to scheduler day abbreviations."""
 
     candidate = str(raw_day or "").strip().lower()
+    if allow_empty and not candidate:
+        return ""
     if candidate in DAY_ALIASES:
         return DAY_ALIASES[candidate]
-    return "Mon"
+    return "" if allow_empty else "Mon"
 
 
 def _to_float(value: Any, *, fallback: float) -> float:
@@ -320,9 +329,20 @@ def _build_payload_from_state() -> dict[str, Any]:
     slot_step = float(st.session_state["ui_slot_step"])
     buffer_hours = float(st.session_state["ui_buffer_hours"])
 
+    scheduler_tasks: list[dict[str, Any]] = []
+    for task in st.session_state["ui_tasks"]:
+        normalized_deadline = _normalize_day(task.get("deadline_day"), allow_empty=True) or "Sun"
+        scheduler_tasks.append(
+            {
+                "title": str(task.get("title", "")).strip(),
+                "duration": _to_float(task.get("duration"), fallback=0.0),
+                "deadline_day": normalized_deadline,
+            }
+        )
+
     payload = {
         "commitments": st.session_state["ui_commitments"],
-        "tasks": st.session_state["ui_tasks"],
+        "tasks": scheduler_tasks,
         "sleep_window": {
             "start": float(st.session_state["ui_sleep_start"]),
             "end": float(st.session_state["ui_sleep_end"]),
@@ -342,3 +362,4 @@ def _build_payload_from_state() -> dict[str, Any]:
     }
 
     return payload
+
