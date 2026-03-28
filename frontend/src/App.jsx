@@ -1,69 +1,28 @@
 import { useEffect, useMemo, useState } from "react";
 
-const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-const HOURS = Array.from({ length: 24 }, (_, index) => index);
-const CALENDAR_START_HOUR = 0;
-const CALENDAR_TOTAL_HOURS = 24;
-const API_BASE = "http://127.0.0.1:8000";
-const TIME_STEP_MINUTES = 5;
-
-function createSamplePayload() {
-  const weekStart = getWeekStart(new Date());
-  const monday = toDateInputValue(weekStart);
-  const tuesday = toDateInputValue(addDays(weekStart, 1));
-  const wednesday = toDateInputValue(addDays(weekStart, 2));
-  const thursday = toDateInputValue(addDays(weekStart, 3));
-  const friday = toDateInputValue(addDays(weekStart, 4));
-  const saturday = toDateInputValue(addDays(weekStart, 5));
-
-  return {
-    commitments: [
-      { title: "CS 101", day: "Mon", commitment_date: monday, start: 9, end: 10.5, category: "class" },
-      { title: "Calculus", day: "Thu", commitment_date: thursday, start: 11, end: 12.5, category: "class" },
-      { title: "Work Shift", day: "Tue", commitment_date: tuesday, start: 14, end: 20, category: "work" },
-      { title: "Work Shift", day: "Thu", commitment_date: thursday, start: 14, end: 20, category: "work" },
-    ],
-    tasks: [
-      { title: "Essay Draft", duration: 3, deadline_day: "Sat", deadline_date: saturday, deadline_time: "18:00" },
-      { title: "CS Project", duration: 5, deadline_day: "Wed", deadline_date: wednesday, deadline_time: "23:59" },
-      { title: "HW Set 4", duration: 2, deadline_day: "Thu", deadline_date: thursday, deadline_time: "17:00" },
-      { title: "Reflection", duration: 1.5, deadline_day: "Fri", deadline_date: friday, deadline_time: "20:00" },
-    ],
-    sleep_window: { start: 23, end: 7 },
-    preferences: {
-      max_daily_hours: 8,
-      preferred_study_start: 7,
-      preferred_study_end: 22,
-      slot_step: 0.5,
-      buffer_hours: 1,
-      weekly_hours_threshold: 50,
-      late_night_cutoff: 23,
-      max_consecutive_blocks: 3,
-      min_breaks_per_day: 1,
-      deadline_cluster_days: 2,
-    },
-  };
-}
-
-function createInitialCommitment(weekStart) {
-  return {
-    title: "",
-    commitment_date: toDateInputValue(weekStart),
-    start: "09:00",
-    end: "10:30",
-    category: "class",
-  };
-}
-
-function createInitialTask(weekStart) {
-  return {
-    title: "",
-    duration: 1,
-    deadline_day: "Mon",
-    deadline_date: toDateInputValue(weekStart),
-    deadline_time: "23:59",
-  };
-}
+import { DateField, Field, NumberField, TimeField, TimePreferenceField } from "./components/form/FormFields";
+import { ScoreRing, InsightCard, StatCard, StepCard } from "./components/ui/Cards";
+import { RiskBreakdown, WorkloadChart } from "./components/visualization/Charts";
+import { TimelineCalendar } from "./components/visualization/TimelineCalendar";
+import {
+  addDays,
+  buildWeekOptions,
+  capitalize,
+  dateToDay,
+  formatDate,
+  formatDeadline,
+  formatHour,
+  formatWeekRange,
+  getWeekStart,
+  isSameWeek,
+  jumpToThisWeek,
+  selectWeek,
+  timeToDecimal,
+  toDateInputValue,
+} from "./lib/dateTime";
+import { analyzeScheduleRequest } from "./lib/api";
+import { createInitialCommitment, createInitialTask, createSamplePayload } from "./lib/sampleData";
+import { buildApiPayload, buildPreviewCalendar, filterBlocks, toDailyBlocks, toDayLoads, validateScheduleInputs } from "./lib/schedule";
 
 function App() {
   const samplePayload = useMemo(() => createSamplePayload(), []);
@@ -97,17 +56,13 @@ function App() {
   );
 
   const payload = useMemo(
-    () => ({
-      commitments: activeWeekCommitments.map(({ title, day, start, end }) => ({ title, day, start, end })),
-      tasks: activeWeekTasks.map(({ title, duration, deadline_day }) => ({ title, duration, deadline_day })),
-      sleep_window: sleepWindow,
-      preferences,
-      max_daily_hours: preferences.max_daily_hours,
-      workday_start: preferences.preferred_study_start,
-      workday_end: preferences.preferred_study_end,
-      slot_step: preferences.slot_step,
-      buffer_hours: preferences.buffer_hours,
-    }),
+    () =>
+      buildApiPayload({
+        commitments: activeWeekCommitments,
+        tasks: activeWeekTasks,
+        sleepWindow,
+        preferences,
+      }),
     [activeWeekCommitments, activeWeekTasks, sleepWindow, preferences]
   );
 
@@ -125,34 +80,7 @@ function App() {
     setError("");
 
     try {
-      const response = await fetch(`${API_BASE}/api/analyze`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-
-      const rawBody = await response.text();
-      let parsedBody = null;
-      if (rawBody) {
-        try {
-          parsedBody = JSON.parse(rawBody);
-        } catch {
-          parsedBody = null;
-        }
-      }
-
-      if (!response.ok) {
-        const message =
-          parsedBody?.detail ||
-          parsedBody?.message ||
-          `Unable to analyze schedule. Backend returned ${response.status}.`;
-        throw new Error(message);
-      }
-
-      if (!parsedBody) {
-        throw new Error("Backend returned an empty response.");
-      }
-
+      const parsedBody = await analyzeScheduleRequest(payload);
       setAnalysis(parsedBody);
       setTab(nextTab);
     } catch (fetchError) {
@@ -210,12 +138,10 @@ function App() {
       setError("Task duration must be greater than zero.");
       return;
     }
-
     if (!taskForm.deadline_date) {
       setError("Choose a deadline date for the task.");
       return;
     }
-
     if (!taskForm.deadline_time) {
       setError("Choose a deadline time for the task.");
       return;
@@ -325,9 +251,9 @@ function App() {
             </section>
 
             <section className="stats-row">
-              <StatCard title="Current Burnout Score" value={analysis ? riskScore : "--"} tone={getTone(riskScore)} />
-              <StatCard title="After Optimization" value={analysis ? optimizedScore : "--"} tone={getTone(optimizedScore)} />
-              <StatCard title="Risk Points Saved" value={analysis ? `-${savedPoints}` : "--"} tone="neutral" />
+              <StatCard title="Current Burnout Score" value={analysis ? riskScore : "--"} tone={getTone(riskScore)} toneClass={toneClass} />
+              <StatCard title="After Optimization" value={analysis ? optimizedScore : "--"} tone={getTone(optimizedScore)} toneClass={toneClass} />
+              <StatCard title="Risk Points Saved" value={analysis ? `-${savedPoints}` : "--"} tone="neutral" toneClass={toneClass} />
             </section>
 
             <section className="grid-2">
@@ -343,8 +269,8 @@ function App() {
               <article className="card">
                 <div className="section-title">What you get</div>
                 <div className="ring-row">
-                  <ScoreRing score={analysis ? riskScore : 72} label="Risk score" tone={analysis ? getTone(riskScore) : "danger"} />
-                  <ScoreRing score={analysis ? optimizedScore : 34} label="Optimized" tone={analysis ? getTone(optimizedScore) : "safe"} />
+                  <ScoreRing score={analysis ? riskScore : 72} label="Risk score" tone={analysis ? getTone(riskScore) : "danger"} toneClass={toneClass} />
+                  <ScoreRing score={analysis ? optimizedScore : 34} label="Optimized" tone={analysis ? getTone(optimizedScore) : "safe"} toneClass={toneClass} />
                 </div>
                 <hr className="divider" />
                 <button className="btn btn-primary btn-full" type="button" onClick={() => setTab("schedule")}>
@@ -376,7 +302,16 @@ function App() {
                   <select
                     className="week-select"
                     value={toDateInputValue(selectedWeekStart)}
-                    onChange={(event) => selectWeek(event.target.value, setSelectedWeekStart, setCommitmentForm, setTaskForm)}
+                    onChange={(event) =>
+                      selectWeek(
+                        event.target.value,
+                        setSelectedWeekStart,
+                        setCommitmentForm,
+                        setTaskForm,
+                        createInitialCommitment,
+                        createInitialTask
+                      )
+                    }
                   >
                     {buildWeekOptions().map((option) => (
                       <option key={option.value} value={option.value}>
@@ -385,7 +320,19 @@ function App() {
                     ))}
                   </select>
                 </Field>
-                <button className="btn btn-ghost" type="button" onClick={() => jumpToThisWeek(setSelectedWeekStart, setCommitmentForm, setTaskForm)}>
+                <button
+                  className="btn btn-ghost"
+                  type="button"
+                  onClick={() =>
+                    jumpToThisWeek(
+                      setSelectedWeekStart,
+                      setCommitmentForm,
+                      setTaskForm,
+                      createInitialCommitment,
+                      createInitialTask
+                    )
+                  }
+                >
                   This Week
                 </button>
               </div>
@@ -513,7 +460,7 @@ function App() {
                 <section className="grid-2">
                   <article className="card">
                     <div className="section-title">Risk Breakdown</div>
-                    <RiskBreakdown assessment={beforeAssessment} />
+                    <RiskBreakdown assessment={beforeAssessment} getTone={getTone} toneClass={toneClass} />
                   </article>
 
                   <article className="card">
@@ -588,11 +535,11 @@ function App() {
                 <section className="comparison">
                   <article className="card">
                     <div className="compare-label">Daily Workload Before</div>
-                    <WorkloadChart data={beforeLoads} />
+                    <WorkloadChart data={beforeLoads} getTone={getTone} toneClass={toneClass} />
                   </article>
                   <article className="card">
                     <div className="compare-label compare-good">Daily Workload After</div>
-                    <WorkloadChart data={afterLoads} />
+                    <WorkloadChart data={afterLoads} getTone={getTone} toneClass={toneClass} />
                   </article>
                 </section>
               </>
@@ -602,309 +549,6 @@ function App() {
       </main>
     </>
   );
-}
-
-function Field({ label, children }) {
-  return (
-    <div className="input-group">
-      <label className="input-label">{label}</label>
-      {children}
-    </div>
-  );
-}
-
-function NumberField({ label, value, onChange, step = "0.5", min = "0" }) {
-  return (
-    <Field label={label}>
-      <input type="number" min={min} step={step} value={value} onChange={(event) => onChange(Number(event.target.value))} />
-    </Field>
-  );
-}
-
-function DateField({ label, value, onChange }) {
-  return (
-    <Field label={label}>
-      <input type="date" value={value} onChange={(event) => onChange(event.target.value)} />
-    </Field>
-  );
-}
-
-function TimeField({ label, value, onChange }) {
-  return (
-    <Field label={label}>
-      <input type="time" step={TIME_STEP_MINUTES * 60} value={value} onChange={(event) => onChange(event.target.value)} />
-    </Field>
-  );
-}
-
-function TimePreferenceField({ label, value, onChange }) {
-  return (
-    <TimeField
-      label={label}
-      value={decimalToTime(value)}
-      onChange={(rawValue) => {
-        const parsed = timeToDecimal(rawValue);
-        if (parsed !== null) {
-          onChange(parsed);
-        }
-      }}
-    />
-  );
-}
-
-function StepCard({ number, title, text }) {
-  return (
-    <div className="step-card">
-      <div className="step-number">{number}</div>
-      <div>
-        <div className="step-title">{title}</div>
-        <div className="step-copy">{text}</div>
-      </div>
-    </div>
-  );
-}
-
-function StatCard({ title, value, tone }) {
-  return (
-    <article className="stat-card">
-      <div className={`stat-value ${toneClass(tone)}`}>{value}</div>
-      <div className="stat-label">{title}</div>
-    </article>
-  );
-}
-
-function ScoreRing({ score, label, tone }) {
-  const radius = 42;
-  const circumference = 2 * Math.PI * radius;
-  const fill = ((score || 0) / 100) * circumference;
-  return (
-    <div className="score-ring-wrap">
-      <svg width="108" height="108" viewBox="0 0 108 108">
-        <circle cx="54" cy="54" r={radius} className="ring-track" />
-        <circle
-          cx="54"
-          cy="54"
-          r={radius}
-          className={`ring-fill ${toneClass(tone)}`}
-          strokeDasharray={`${fill} ${circumference}`}
-          transform="rotate(-90 54 54)"
-        />
-        <text x="54" y="52" textAnchor="middle" className="ring-score">{score || "--"}</text>
-        <text x="54" y="69" textAnchor="middle" className="ring-total">/100</text>
-      </svg>
-      <span>{label}</span>
-    </div>
-  );
-}
-
-function InsightCard({ tone, text }) {
-  return (
-    <div className={`insight insight-${tone}`}>
-      <span className="insight-icon">{tone === "danger" ? "!" : tone === "warn" ? "~" : "+"}</span>
-      <div className="insight-text">{text}</div>
-    </div>
-  );
-}
-
-function RiskBreakdown({ assessment }) {
-  const entries = [
-    ["Daily Workload", assessment.metrics.overloaded_days?.length ? 85 : 24],
-    ["Deadline Clustering", assessment.reasons.some((reason) => reason.includes("deadlines")) ? 90 : 20],
-    ["Break Frequency", assessment.reasons.some((reason) => reason.includes("break")) ? 80 : 18],
-    ["Late Night Work", assessment.metrics.late_night_blocks ? 55 : 12],
-    ["Recovery Time", assessment.reasons.some((reason) => reason.includes("recovery")) ? 72 : 16],
-  ];
-
-  return entries.map(([label, score]) => (
-    <div className="risk-row" key={label}>
-      <div className="flex-between mb-1">
-        <span>{label}</span>
-        <span className={`score-mini ${toneClass(getTone(score))}`}>{score}/100</span>
-      </div>
-      <div className="risk-bar-track small">
-        <div className={`risk-bar-fill ${toneClass(getTone(score))}`} style={{ width: `${score}%` }} />
-      </div>
-    </div>
-  ));
-}
-
-function TimelineCalendar({ blocks, weekStart }) {
-  return (
-    <div className="timeline-calendar">
-      <div className="timeline-grid">
-        <div className="timeline-corner" />
-        {DAYS.map((day, index) => (
-          <div className="timeline-day-header" key={day}>
-            <strong>{day}</strong>
-            <span>{formatShortDate(addDays(weekStart, index))}</span>
-          </div>
-        ))}
-        <div className="timeline-time-column">
-          {HOURS.map((hour) => (
-            <div className="timeline-time-label" key={hour} style={{ top: `${hourToTopPercent(hour)}%` }}>
-              {formatHour(hour)}
-            </div>
-          ))}
-        </div>
-        {DAYS.map((day) => (
-          <div className="timeline-day-column" key={day}>
-            {HOURS.map((hour) => (
-              <div key={`${day}-${hour}`} className="timeline-hour-line" style={{ top: `${hourToTopPercent(hour)}%` }} />
-            ))}
-            {(blocks[day] || []).map((block, index) => (
-              <TimelineBlock key={`${day}-${block.label}-${index}`} block={block} />
-            ))}
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function TimelineBlock({ block }) {
-  if (typeof block.start !== "number" || typeof block.end !== "number") {
-    return (
-      <div className={`timeline-task-pill timeline-${block.type}`}>
-        <strong>{block.label}</strong>
-        {block.time ? <span>{block.time}</span> : null}
-      </div>
-    );
-  }
-
-  const clippedStart = Math.max(block.start, CALENDAR_START_HOUR);
-  const clippedEnd = Math.min(block.end, CALENDAR_START_HOUR + CALENDAR_TOTAL_HOURS);
-  if (clippedEnd <= clippedStart) return null;
-
-  return (
-    <div
-      className={`timeline-block timeline-${block.type}${block.overload ? " timeline-overload" : ""}`}
-      style={{
-        top: `${hourToTopPercent(clippedStart)}%`,
-        height: `${Math.max(((clippedEnd - clippedStart) / CALENDAR_TOTAL_HOURS) * 100, 2.2)}%`,
-      }}
-    >
-      <strong>{block.label}</strong>
-      <span>{formatHour(block.start)}-{formatHour(block.end)}</span>
-    </div>
-  );
-}
-
-function WorkloadChart({ data }) {
-  return (
-    <div>
-      {DAYS.map((day, index) => {
-        const hours = data[index] ?? 0;
-        const tone = getTone(hours > 9 ? 90 : hours > 6 ? 55 : 20);
-        return (
-          <div className="workload-bar-row" key={day}>
-            <span className="wl-day">{day}</span>
-            <div className="wl-track">
-              <div className={`wl-fill ${toneClass(tone)}`} style={{ width: `${Math.min((hours / 14) * 100, 100)}%` }} />
-            </div>
-            <span className="wl-hours">{hours}h</span>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-function toDailyBlocks(scheduledTasks, commitments) {
-  const days = Object.fromEntries(DAYS.map((day) => [day, []]));
-
-  commitments.forEach((item) => {
-    days[item.day]?.push({
-      label: item.title,
-      type: item.category === "work" || item.title.toLowerCase().includes("work") ? "work" : "class",
-      start: item.start,
-      end: item.end,
-      time: `${formatHour(item.start)}-${formatHour(item.end)}`,
-    });
-  });
-
-  scheduledTasks.forEach((item) => {
-    days[item.day]?.push({
-      label: item.title,
-      type: "task",
-      overload: /deadline|due/i.test(item.title),
-      start: item.start,
-      end: item.end,
-      time: `${formatHour(item.start)}-${formatHour(item.end)}`,
-    });
-  });
-
-  Object.values(days).forEach((blocks) => {
-    blocks.sort((left, right) => {
-      const leftStart = typeof left.start === "number" ? left.start : 99;
-      const rightStart = typeof right.start === "number" ? right.start : 99;
-      return leftStart - rightStart;
-    });
-  });
-
-  return days;
-}
-
-function buildPreviewCalendar(commitments, tasks) {
-  const days = Object.fromEntries(DAYS.map((day) => [day, []]));
-
-  commitments.forEach((item) => {
-    days[item.day]?.push({
-      label: item.title,
-      type: item.category === "work" ? "work" : "class",
-      start: item.start,
-      end: item.end,
-      time: `${formatHour(item.start)}-${formatHour(item.end)}`,
-    });
-  });
-
-  tasks.forEach((task) => {
-    days[task.deadline_day]?.push({
-      label: `${task.title} due`,
-      type: "task",
-      time: `${formatDeadline(task)} · ${task.duration}h`,
-    });
-  });
-
-  Object.values(days).forEach((blocks) => {
-    blocks.sort((left, right) => {
-      const leftStart = typeof left.start === "number" ? left.start : 99;
-      const rightStart = typeof right.start === "number" ? right.start : 99;
-      return leftStart - rightStart;
-    });
-  });
-
-  return days;
-}
-
-function filterBlocks(daily, filter) {
-  if (filter === "all") return daily;
-  return Object.fromEntries(Object.entries(daily).map(([day, blocks]) => [day, blocks.filter((block) => block.type === filter)]));
-}
-
-function toDayLoads(dailyHours = {}) {
-  return DAYS.map((day) => Number(dailyHours?.[day] || 0));
-}
-
-function validateScheduleInputs({ commitments, tasks }) {
-  if (!commitments.length && !tasks.length) {
-    return "Add at least one class, work block, or task in the currently selected week before analyzing.";
-  }
-  if (tasks.some((task) => !task.title?.trim())) {
-    return "Every task needs a title.";
-  }
-  if (tasks.some((task) => task.deadline_date && !dateToDay(task.deadline_date))) {
-    return "Each task needs a valid deadline date.";
-  }
-  if (tasks.some((task) => !task.deadline_time)) {
-    return "Each task needs a deadline time.";
-  }
-  if (tasks.some((task) => !DAYS.includes(task.deadline_day))) {
-    return "Each task needs a valid deadline day.";
-  }
-  if (commitments.some((item) => item.end <= item.start)) {
-    return "Every class or work block must end after it starts.";
-  }
-  return "";
 }
 
 function getTone(score) {
@@ -919,142 +563,6 @@ function toneClass(tone) {
   if (tone === "danger") return "tone-danger";
   if (tone === "safe") return "tone-safe";
   return "tone-neutral";
-}
-
-function formatHour(value) {
-  const safeValue = ((value % 24) + 24) % 24;
-  let hour = Math.floor(safeValue);
-  let minute = Math.round((safeValue - hour) * 60);
-  if (minute === 60) {
-    hour = (hour + 1) % 24;
-    minute = 0;
-  }
-  const suffix = hour < 12 ? "AM" : "PM";
-  const normalized = hour % 12 || 12;
-  return `${normalized}:${String(minute).padStart(2, "0")} ${suffix}`;
-}
-
-function timeToDecimal(rawValue) {
-  if (!rawValue || !rawValue.includes(":")) return null;
-  const [hoursText, minutesText] = rawValue.split(":");
-  const hours = Number(hoursText);
-  const minutes = Number(minutesText);
-  if (Number.isNaN(hours) || Number.isNaN(minutes)) return null;
-  return Number((hours + minutes / 60).toFixed(2));
-}
-
-function dateToDay(rawValue) {
-  if (!rawValue) return null;
-  const parsed = new Date(`${rawValue}T00:00:00`);
-  if (Number.isNaN(parsed.getTime())) return null;
-  return ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][parsed.getDay()] || null;
-}
-
-function addDays(date, amount) {
-  const next = new Date(date);
-  next.setDate(next.getDate() + amount);
-  return next;
-}
-
-function getWeekStart(date) {
-  const base = new Date(date);
-  const day = base.getDay();
-  const diff = day === 0 ? -6 : 1 - day;
-  base.setHours(0, 0, 0, 0);
-  base.setDate(base.getDate() + diff);
-  return base;
-}
-
-function toDateInputValue(date) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
-function isSameWeek(rawValue, weekStart) {
-  if (!rawValue) return false;
-  const date = new Date(`${rawValue}T00:00:00`);
-  if (Number.isNaN(date.getTime())) return false;
-  return toDateInputValue(getWeekStart(date)) === toDateInputValue(weekStart);
-}
-
-function formatDate(rawValue) {
-  if (!rawValue) return "No date";
-  const [year, month, day] = rawValue.split("-");
-  if (!year || !month || !day) return rawValue;
-  return `${month}/${day}/${year}`;
-}
-
-function formatShortDate(date) {
-  return `${String(date.getMonth() + 1).padStart(2, "0")}/${String(date.getDate()).padStart(2, "0")}`;
-}
-
-function formatWeekRange(weekStart) {
-  const weekEnd = addDays(weekStart, 6);
-  return `${formatDate(toDateInputValue(weekStart))} - ${formatDate(toDateInputValue(weekEnd))}`;
-}
-
-function buildWeekOptions() {
-  const currentWeek = getWeekStart(new Date());
-  return Array.from({ length: 25 }, (_, index) => {
-    const offset = index - 12;
-    const weekStart = addDays(currentWeek, offset * 7);
-    const value = toDateInputValue(weekStart);
-    const prefix = offset === 0 ? "This Week · " : "";
-    return {
-      value,
-      label: `${prefix}${formatWeekRange(weekStart)}`,
-    };
-  });
-}
-
-function formatDeadline(task) {
-  const dateLabel = task.deadline_date ? formatDate(task.deadline_date) : task.deadline_day;
-  const timeLabel = task.deadline_time || "";
-  return `${dateLabel}${timeLabel ? ` ${timeLabel}` : ""}`;
-}
-
-function shiftWeek(direction, setSelectedWeekStart, setCommitmentForm, setTaskForm) {
-  setSelectedWeekStart((current) => {
-    const next = addDays(current, direction * 7);
-    setCommitmentForm(createInitialCommitment(next));
-    setTaskForm(createInitialTask(next));
-    return next;
-  });
-}
-
-function jumpToThisWeek(setSelectedWeekStart, setCommitmentForm, setTaskForm) {
-  const next = getWeekStart(new Date());
-  setSelectedWeekStart(next);
-  setCommitmentForm(createInitialCommitment(next));
-  setTaskForm(createInitialTask(next));
-}
-
-function selectWeek(rawValue, setSelectedWeekStart, setCommitmentForm, setTaskForm) {
-  const next = getWeekStart(new Date(`${rawValue}T00:00:00`));
-  setSelectedWeekStart(next);
-  setCommitmentForm(createInitialCommitment(next));
-  setTaskForm(createInitialTask(next));
-}
-
-function decimalToTime(value) {
-  const normalized = ((value % 24) + 24) % 24;
-  let hour = Math.floor(normalized);
-  let minute = Math.round((normalized - hour) * 60);
-  if (minute === 60) {
-    hour = (hour + 1) % 24;
-    minute = 0;
-  }
-  return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
-}
-
-function hourToTopPercent(hour) {
-  return ((hour - CALENDAR_START_HOUR) / CALENDAR_TOTAL_HOURS) * 100;
-}
-
-function capitalize(value) {
-  return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
 export default App;
