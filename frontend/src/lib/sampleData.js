@@ -17,10 +17,10 @@ export function createSamplePayload() {
       { title: "Work Shift", day: "Thu", commitment_date: thursday, start: 14, end: 20, category: "work" },
     ],
     tasks: [
-      { title: "Essay Draft", duration: 3, deadline_day: "Sat", deadline_date: saturday, deadline_time: "18:00" },
-      { title: "CS Project", duration: 5, deadline_day: "Wed", deadline_date: wednesday, deadline_time: "23:59" },
-      { title: "HW Set 4", duration: 2, deadline_day: "Thu", deadline_date: thursday, deadline_time: "17:00" },
-      { title: "Reflection", duration: 1.5, deadline_day: "Fri", deadline_date: friday, deadline_time: "20:00" },
+      { title: "Essay Draft", duration: 3, deadline_day: "Sat", deadline_date: saturday, deadline_time: "18:00", is_locked: false },
+      { title: "CS Project", duration: 5, deadline_day: "Wed", deadline_date: wednesday, deadline_time: "23:59", is_locked: false },
+      { title: "HW Set 4", duration: 2, deadline_day: "Thu", deadline_date: thursday, deadline_time: "17:00", is_locked: false },
+      { title: "Reflection", duration: 1.5, deadline_day: "Fri", deadline_date: friday, deadline_time: "20:00", is_locked: false },
     ],
     sleep_window: { start: 23, end: 7 },
     preferences: {
@@ -55,5 +55,9 @@ export function createInitialTask(weekStart) {
     deadline_day: "Mon",
     deadline_date: toDateInputValue(weekStart),
     deadline_time: "23:59",
+    is_locked: false,
+    scheduled_date: toDateInputValue(weekStart),
+    scheduled_start_time: "09:00",
+    scheduled_end_time: "10:00",
   };
 }

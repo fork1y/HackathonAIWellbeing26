@@ -1,7 +1,23 @@
 import { CALENDAR_START_HOUR, CALENDAR_TOTAL_HOURS, DAYS, HOURS } from "../../lib/constants";
-import { addDays, formatHour, formatShortDate, hourToTopPercent } from "../../lib/dateTime";
+import { addDays, formatHour, formatShortDate, hourToTopPercent, toDateInputValue } from "../../lib/dateTime";
 
-export function TimelineCalendar({ blocks, weekStart }) {
+export function TimelineCalendar({ blocks, weekStart, onCreateBlock }) {
+  function handleColumnClick(day, event) {
+    if (!onCreateBlock) return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    const relativeY = Math.min(Math.max(event.clientY - rect.top, 0), rect.height);
+    const rawHour = (relativeY / rect.height) * CALENDAR_TOTAL_HOURS + CALENDAR_START_HOUR;
+    const start = Math.max(CALENDAR_START_HOUR, Math.min(roundToStep(rawHour, 0.5), 23));
+    const end = Math.min(start + 1, CALENDAR_START_HOUR + CALENDAR_TOTAL_HOURS);
+    const dayIndex = DAYS.indexOf(day);
+    onCreateBlock({
+      day,
+      date: toDateInputValue(addDays(weekStart, dayIndex)),
+      start,
+      end,
+    });
+  }
+
   return (
     <div className="timeline-calendar">
       <div className="timeline-grid">
@@ -20,7 +36,12 @@ export function TimelineCalendar({ blocks, weekStart }) {
           ))}
         </div>
         {DAYS.map((day) => (
-          <div className="timeline-day-column" key={day}>
+          <div
+            className="timeline-day-column"
+            key={day}
+            onClick={(event) => handleColumnClick(day, event)}
+            style={onCreateBlock ? { cursor: "crosshair" } : undefined}
+          >
             {HOURS.map((hour) => (
               <div key={`${day}-${hour}`} className="timeline-hour-line" style={{ top: `${hourToTopPercent(hour)}%` }} />
             ))}
@@ -51,13 +72,19 @@ function TimelineBlock({ block }) {
   return (
     <div
       className={`timeline-block timeline-${block.type}${block.overload ? " timeline-overload" : ""}`}
+      onClick={(event) => event.stopPropagation()}
       style={{
         top: `${hourToTopPercent(clippedStart)}%`,
         height: `${Math.max(((clippedEnd - clippedStart) / CALENDAR_TOTAL_HOURS) * 100, 2.2)}%`,
+        borderStyle: block.locked ? "dashed" : undefined,
       }}
     >
       <strong>{block.label}</strong>
-      <span>{formatHour(block.start)}-{formatHour(block.end)}</span>
+      <span>{formatHour(block.start)}-{formatHour(block.end)}{block.locked ? " · Fixed" : ""}</span>
     </div>
   );
+}
+
+function roundToStep(value, step) {
+  return Math.round(value / step) * step;
 }

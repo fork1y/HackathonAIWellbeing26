@@ -1,10 +1,13 @@
 import { DAYS } from "./constants";
-import { dateToDay, formatDeadline, formatHour } from "./dateTime";
+import { dateToDay, formatDeadline, formatHour, timeToDecimal } from "./dateTime";
 
 export function buildApiPayload({ commitments, tasks, sleepWindow, preferences }) {
   return {
-    commitments: commitments.map(({ title, day, start, end }) => ({ title, day, start, end })),
-    tasks: tasks.map(({ title, duration, deadline_day }) => ({ title, duration, deadline_day })),
+    commitments: [
+      ...commitments.map(({ title, day, start, end }) => ({ title, day, start, end })),
+      ...buildLockedTaskCommitments(tasks).map(({ title, day, start, end }) => ({ title, day, start, end })),
+    ],
+    tasks: tasks.filter((task) => !task.is_locked).map(({ title, duration, deadline_day }) => ({ title, duration, deadline_day })),
     sleep_window: sleepWindow,
     preferences,
     max_daily_hours: preferences.max_daily_hours,
@@ -13,6 +16,24 @@ export function buildApiPayload({ commitments, tasks, sleepWindow, preferences }
     slot_step: preferences.slot_step,
     buffer_hours: preferences.buffer_hours,
   };
+}
+
+export function buildLockedTaskCommitments(tasks) {
+  return tasks
+    .filter((task) => task.is_locked)
+    .map((task) => ({
+      title: task.title,
+      day: dateToDay(task.scheduled_date) || task.deadline_day,
+      start: timeToDecimal(task.scheduled_start_time),
+      end: timeToDecimal(task.scheduled_end_time),
+      category: "locked-task",
+      task_locked: true,
+    }))
+    .filter((task) => typeof task.start === "number" && typeof task.end === "number" && task.end > task.start);
+}
+
+export function buildDisplayCommitments(commitments, tasks) {
+  return [...commitments, ...buildLockedTaskCommitments(tasks)];
 }
 
 export function validateScheduleInputs({ commitments, tasks }) {
@@ -28,6 +49,25 @@ export function validateScheduleInputs({ commitments, tasks }) {
   if (tasks.some((task) => !task.deadline_time)) {
     return "Each task needs a deadline time.";
   }
+  if (
+    tasks.some(
+      (task) =>
+        task.is_locked &&
+        (!task.scheduled_date || !task.scheduled_start_time || !task.scheduled_end_time)
+    )
+  ) {
+    return "Each fixed task needs a scheduled date and time range.";
+  }
+  if (
+    tasks.some((task) => {
+      if (!task.is_locked) return false;
+      const start = timeToDecimal(task.scheduled_start_time);
+      const end = timeToDecimal(task.scheduled_end_time);
+      return start === null || end === null || end <= start;
+    })
+  ) {
+    return "Each fixed task must end after it starts.";
+  }
   if (tasks.some((task) => !DAYS.includes(task.deadline_day))) {
     return "Each task needs a valid deadline day.";
   }
@@ -41,12 +81,14 @@ export function toDailyBlocks(scheduledTasks, commitments) {
   const days = Object.fromEntries(DAYS.map((day) => [day, []]));
 
   commitments.forEach((item) => {
+    const isLockedTask = item.category === "locked-task" || item.task_locked;
     days[item.day]?.push({
       label: item.title,
-      type: item.category === "work" || item.title.toLowerCase().includes("work") ? "work" : "class",
+      type: isLockedTask ? "task" : item.category === "work" || item.title.toLowerCase().includes("work") ? "work" : "class",
       start: item.start,
       end: item.end,
       time: `${formatHour(item.start)}-${formatHour(item.end)}`,
+      locked: isLockedTask,
     });
   });
 
@@ -76,16 +118,18 @@ export function buildPreviewCalendar(commitments, tasks) {
   const days = Object.fromEntries(DAYS.map((day) => [day, []]));
 
   commitments.forEach((item) => {
+    const isLockedTask = item.category === "locked-task" || item.task_locked;
     days[item.day]?.push({
       label: item.title,
-      type: item.category === "work" ? "work" : "class",
+      type: isLockedTask ? "task" : item.category === "work" ? "work" : "class",
       start: item.start,
       end: item.end,
       time: `${formatHour(item.start)}-${formatHour(item.end)}`,
+      locked: isLockedTask,
     });
   });
 
-  tasks.forEach((task) => {
+  tasks.filter((task) => !task.is_locked).forEach((task) => {
     days[task.deadline_day]?.push({
       label: `${task.title} due`,
       type: "task",

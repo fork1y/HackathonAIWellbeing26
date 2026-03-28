@@ -5,7 +5,6 @@ import { ScoreRing, InsightCard, StatCard, StepCard } from "./components/ui/Card
 import { RiskBreakdown, WorkloadChart } from "./components/visualization/Charts";
 import { TimelineCalendar } from "./components/visualization/TimelineCalendar";
 import {
-  addDays,
   buildWeekOptions,
   capitalize,
   dateToDay,
@@ -15,14 +14,28 @@ import {
   formatWeekRange,
   getWeekStart,
   isSameWeek,
-  jumpToThisWeek,
-  selectWeek,
   timeToDecimal,
   toDateInputValue,
 } from "./lib/dateTime";
 import { analyzeScheduleRequest } from "./lib/api";
-import { createInitialCommitment, createInitialTask, createSamplePayload } from "./lib/sampleData";
-import { buildApiPayload, buildPreviewCalendar, filterBlocks, toDailyBlocks, toDayLoads, validateScheduleInputs } from "./lib/schedule";
+import { createSamplePayload } from "./lib/sampleData";
+import { buildApiPayload, buildDisplayCommitments, buildPreviewCalendar, filterBlocks, toDailyBlocks, toDayLoads, validateScheduleInputs } from "./lib/schedule";
+
+function createComposerState(weekStart, overrides = {}) {
+  return {
+    mode: "slot",
+    type: "task",
+    title: "",
+    duration: 1,
+    is_locked: true,
+    commitment_date: toDateInputValue(weekStart),
+    start_time: "09:00",
+    end_time: "10:00",
+    deadline_date: toDateInputValue(weekStart),
+    deadline_time: "23:59",
+    ...overrides,
+  };
+}
 
 function App() {
   const samplePayload = useMemo(() => createSamplePayload(), []);
@@ -33,8 +46,8 @@ function App() {
   const [tasks, setTasks] = useState(samplePayload.tasks);
   const [preferences, setPreferences] = useState(samplePayload.preferences);
   const [sleepWindow, setSleepWindow] = useState(samplePayload.sleep_window);
-  const [commitmentForm, setCommitmentForm] = useState(() => createInitialCommitment(getWeekStart(new Date())));
-  const [taskForm, setTaskForm] = useState(() => createInitialTask(getWeekStart(new Date())));
+  const [composer, setComposer] = useState(() => createComposerState(getWeekStart(new Date())));
+  const [composerOpen, setComposerOpen] = useState(false);
   const [analysis, setAnalysis] = useState(null);
   const [activeFilter, setActiveFilter] = useState("all");
   const [loading, setLoading] = useState(false);
@@ -65,6 +78,10 @@ function App() {
       }),
     [activeWeekCommitments, activeWeekTasks, sleepWindow, preferences]
   );
+  const displayCommitments = useMemo(
+    () => buildDisplayCommitments(activeWeekCommitments, activeWeekTasks),
+    [activeWeekCommitments, activeWeekTasks]
+  );
 
   async function analyzeSchedule(nextTab = "insights") {
     const validationError = validateScheduleInputs({
@@ -94,75 +111,76 @@ function App() {
     }
   }
 
-  function addCommitment() {
-    if (!commitmentForm.title.trim()) {
-      setError("Add a title before saving a class or work block.");
+  function saveComposer() {
+    if (!composer.title.trim()) {
+      setError("Add a title before saving.");
       return;
     }
 
-    const start = timeToDecimal(commitmentForm.start);
-    const end = timeToDecimal(commitmentForm.end);
-    const commitmentDay = dateToDay(commitmentForm.commitment_date);
-
-    if (start === null || end === null || !commitmentDay) {
-      setError("Enter valid start and end times.");
+    if (composer.mode === "slot" && (composer.type === "class" || composer.type === "work")) {
+      const start = timeToDecimal(composer.start_time);
+      const end = timeToDecimal(composer.end_time);
+      const commitmentDay = dateToDay(composer.commitment_date);
+      if (start === null || end === null || !commitmentDay) {
+        setError("Enter a valid date and time range.");
+        return;
+      }
+      if (end <= start) {
+        setError("End time must be later than start time.");
+        return;
+      }
+      setCommitments((current) => [
+        ...current,
+        {
+          title: composer.title.trim(),
+          day: commitmentDay,
+          commitment_date: composer.commitment_date,
+          start,
+          end,
+          category: composer.type,
+        },
+      ]);
+      closeComposer();
       return;
     }
 
-    if (end <= start) {
-      setError("Class or work end time must be later than start time.");
-      return;
-    }
-
-    setError("");
-    setCommitments((current) => [
-      ...current,
-      {
-        title: commitmentForm.title.trim(),
-        day: commitmentDay,
-        commitment_date: commitmentForm.commitment_date,
-        start,
-        end,
-        category: commitmentForm.category,
-      },
-    ]);
-    setCommitmentForm(createInitialCommitment(selectedWeekStart));
-  }
-
-  function addTask() {
-    if (!taskForm.title.trim()) {
-      setError("Add a task title before saving.");
-      return;
-    }
-    if (taskForm.duration <= 0) {
+    if (composer.duration <= 0) {
       setError("Task duration must be greater than zero.");
       return;
     }
-    if (!taskForm.deadline_date) {
-      setError("Choose a deadline date for the task.");
+    if (!composer.deadline_date || !composer.deadline_time) {
+      setError("Each task needs a deadline date and time.");
       return;
     }
-    if (!taskForm.deadline_time) {
-      setError("Choose a deadline time for the task.");
-      return;
-    }
-
-    const deadlineDay = dateToDay(taskForm.deadline_date);
+    const deadlineDay = dateToDay(composer.deadline_date);
     if (!deadlineDay) {
       setError("Choose a valid deadline date.");
       return;
     }
 
-    setError("");
-    setTasks((current) => [
-      ...current,
-      {
-        ...taskForm,
-        title: taskForm.title.trim(),
-        deadline_day: deadlineDay,
-      },
-    ]);
-    setTaskForm(createInitialTask(selectedWeekStart));
+    const nextTask = {
+      title: composer.title.trim(),
+      duration: composer.duration,
+      deadline_day: deadlineDay,
+      deadline_date: composer.deadline_date,
+      deadline_time: composer.deadline_time,
+      is_locked: composer.mode === "slot" || composer.is_locked,
+      scheduled_date: composer.commitment_date,
+      scheduled_start_time: composer.start_time,
+      scheduled_end_time: composer.end_time,
+    };
+
+    if (nextTask.is_locked) {
+      const scheduledStart = timeToDecimal(nextTask.scheduled_start_time);
+      const scheduledEnd = timeToDecimal(nextTask.scheduled_end_time);
+      if (scheduledStart === null || scheduledEnd === null || scheduledEnd <= scheduledStart) {
+        setError("Fixed task end time must be later than start time.");
+        return;
+      }
+    }
+
+    setTasks((current) => [...current, nextTask]);
+    closeComposer();
   }
 
   function resetSample() {
@@ -171,8 +189,8 @@ function App() {
     setPreferences(samplePayload.preferences);
     setSleepWindow(samplePayload.sleep_window);
     setSelectedWeekStart(getWeekStart(new Date()));
-    setCommitmentForm(createInitialCommitment(getWeekStart(new Date())));
-    setTaskForm(createInitialTask(getWeekStart(new Date())));
+    setComposer(createComposerState(getWeekStart(new Date())));
+    setComposerOpen(false);
     setAnalysis(null);
     setError("");
   }
@@ -186,14 +204,49 @@ function App() {
   const optimizedScore = afterAssessment?.score ?? 0;
   const savedPoints = analysis ? Math.max(riskScore - optimizedScore, 0) : 0;
 
-  const beforeDaily = toDailyBlocks(beforePlan?.scheduled_tasks || [], activeWeekCommitments);
-  const afterDaily = toDailyBlocks(afterPlan?.scheduled_tasks || [], activeWeekCommitments);
+  const beforeDaily = toDailyBlocks(beforePlan?.scheduled_tasks || [], displayCommitments);
+  const afterDaily = toDailyBlocks(afterPlan?.scheduled_tasks || [], displayCommitments);
   const beforeLoads = toDayLoads(beforeAssessment?.metrics?.daily_hours);
   const afterLoads = toDayLoads(afterAssessment?.metrics?.daily_hours);
-  const schedulePreview = buildPreviewCalendar(activeWeekCommitments, activeWeekTasks);
+  const schedulePreview = buildPreviewCalendar(displayCommitments, activeWeekTasks);
 
   const filteredBefore = filterBlocks(beforeDaily, activeFilter);
   const filteredAfter = filterBlocks(afterDaily, activeFilter);
+
+  function handleCalendarQuickAdd(selection) {
+    setComposer(
+      createComposerState(selectedWeekStart, {
+        mode: "slot",
+        type: "task",
+        title: "",
+        commitment_date: selection.date,
+        start_time: decimalToTimeString(selection.start),
+        end_time: decimalToTimeString(selection.end),
+        deadline_date: selection.date,
+        is_locked: true,
+      })
+    );
+    setComposerOpen(true);
+    setError("");
+  }
+
+  function openDeadlineTaskComposer() {
+    setComposer(
+      createComposerState(selectedWeekStart, {
+        mode: "deadline",
+        type: "task",
+        is_locked: false,
+      })
+    );
+    setComposerOpen(true);
+    setError("");
+  }
+
+  function closeComposer() {
+    setComposerOpen(false);
+    setComposer(createComposerState(selectedWeekStart));
+    setError("");
+  }
 
   return (
     <>
@@ -302,16 +355,7 @@ function App() {
                   <select
                     className="week-select"
                     value={toDateInputValue(selectedWeekStart)}
-                    onChange={(event) =>
-                      selectWeek(
-                        event.target.value,
-                        setSelectedWeekStart,
-                        setCommitmentForm,
-                        setTaskForm,
-                        createInitialCommitment,
-                        createInitialTask
-                      )
-                    }
+                    onChange={(event) => setSelectedWeekStart(getWeekStart(new Date(`${event.target.value}T00:00:00`)))}
                   >
                     {buildWeekOptions().map((option) => (
                       <option key={option.value} value={option.value}>
@@ -323,96 +367,69 @@ function App() {
                 <button
                   className="btn btn-ghost"
                   type="button"
-                  onClick={() =>
-                    jumpToThisWeek(
-                      setSelectedWeekStart,
-                      setCommitmentForm,
-                      setTaskForm,
-                      createInitialCommitment,
-                      createInitialTask
-                    )
-                  }
+                  onClick={() => setSelectedWeekStart(getWeekStart(new Date()))}
                 >
                   This Week
+                </button>
+                <button className="btn btn-primary" type="button" onClick={openDeadlineTaskComposer}>
+                  Add Deadline Task
                 </button>
               </div>
             </section>
 
-            <section className="workspace">
-              <div className="workspace-left page-stack">
-                <article className="card">
-                  <div className="section-title">1. Classes and Work</div>
-                  <p className="helper-copy">Use actual time entry. The fields support times like 10:30, 10:35, or 21:15.</p>
-                  <div className="tag-row">
-                    {activeWeekCommitments.map((item, index) => (
-                      <div className={`tag ${item.category === "work" ? "tag-work" : "tag-class"}`} key={`${item.title}-${index}`}>
-                        <span>{item.title} · {formatDate(item.commitment_date)} · {formatHour(item.start)}-{formatHour(item.end)}</span>
-                        <button className="tag-remove" type="button" onClick={() => setCommitments((current) => current.filter((entry) => entry !== item))}>
-                          ×
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="form-grid six-up">
-                    <Field label="Type">
-                      <select value={commitmentForm.category} onChange={(event) => setCommitmentForm((current) => ({ ...current, category: event.target.value }))}>
-                        <option value="class">Class</option>
-                        <option value="work">Work</option>
-                      </select>
-                    </Field>
-                    <Field label="Title">
-                      <input value={commitmentForm.title} placeholder="CS 101 lecture" onChange={(event) => setCommitmentForm((current) => ({ ...current, title: event.target.value }))} />
-                    </Field>
-                    <DateField label="Date" value={commitmentForm.commitment_date} onChange={(value) => setCommitmentForm((current) => ({ ...current, commitment_date: value }))} />
-                    <TimeField label="Start" value={commitmentForm.start} onChange={(value) => setCommitmentForm((current) => ({ ...current, start: value }))} />
-                    <TimeField label="End" value={commitmentForm.end} onChange={(value) => setCommitmentForm((current) => ({ ...current, end: value }))} />
-                    <Field label="Weekday">
-                      <input value={dateToDay(commitmentForm.commitment_date) || ""} readOnly />
-                    </Field>
-                  </div>
-                  <button className="btn btn-primary" type="button" onClick={addCommitment}>
-                    Add Class or Work Block
-                  </button>
-                </article>
+            <article className="card card-stretch">
+              <div className="section-title">Weekly Planner</div>
+              <p className="helper-copy">Click directly on the calendar to create a class, work block, or fixed task. Use `Add Deadline Task` for flexible assignments.</p>
+              <TimelineCalendar blocks={schedulePreview} weekStart={selectedWeekStart} onCreateBlock={handleCalendarQuickAdd} />
+            </article>
 
-                <article className="card">
-                  <div className="section-title">2. Tasks and Deadlines</div>
-                  <p className="helper-copy">Tasks stay movable for the optimizer, but you can now enter a real due date and due time in addition to estimated hours.</p>
-                  <div className="tag-row">
-                    {activeWeekTasks.map((item, index) => (
-                      <div className="tag tag-task" key={`${item.title}-${index}`}>
-                        <span>{item.title} · due {formatDeadline(item)} · {item.duration}h</span>
-                        <button className="tag-remove" type="button" onClick={() => setTasks((current) => current.filter((entry) => entry !== item))}>
-                          ×
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="form-grid five-up">
-                    <Field label="Task name">
-                      <input value={taskForm.title} placeholder="Essay Draft" onChange={(event) => setTaskForm((current) => ({ ...current, title: event.target.value }))} />
-                    </Field>
-                    <NumberField label="Est. hours" min="0.25" step="0.25" value={taskForm.duration} onChange={(value) => setTaskForm((current) => ({ ...current, duration: value }))} />
-                    <DateField label="Deadline date" value={taskForm.deadline_date} onChange={(value) => setTaskForm((current) => ({ ...current, deadline_date: value, deadline_day: dateToDay(value) || current.deadline_day }))} />
-                    <TimeField label="Deadline time" value={taskForm.deadline_time} onChange={(value) => setTaskForm((current) => ({ ...current, deadline_time: value }))} />
-                    <Field label="Weekday">
-                      <input value={dateToDay(taskForm.deadline_date) || taskForm.deadline_day} readOnly />
-                    </Field>
-                  </div>
-                  <button className="btn btn-primary" type="button" onClick={addTask}>
-                    Add Movable Task
-                  </button>
-                  <p className="helper-copy">Deadline date and time define when the task is due. The optimizer can still move the work earlier in the week.</p>
-                </article>
-              </div>
-
-              <div className="workspace-right page-stack">
-                <article className="card card-stretch">
-                  <div className="section-title">Live Weekly Preview</div>
-                  <p className="helper-copy">Classes and work are placed at exact times. Deadlines appear as due markers in the week.</p>
-                  <TimelineCalendar blocks={schedulePreview} weekStart={selectedWeekStart} />
-                </article>
-              </div>
+            <section className="grid-2">
+              <article className="card">
+                <div className="section-title">Scheduled Blocks</div>
+                <div className="tag-row">
+                  {displayCommitments.map((item, index) => (
+                    <div className={`tag ${item.category === "work" ? "tag-work" : item.category === "locked-task" ? "tag-task" : "tag-class"}`} key={`${item.title}-${index}`}>
+                      <span>{item.title} · {formatHour(item.start)}-{formatHour(item.end)}</span>
+                      <button
+                        className="tag-remove"
+                        type="button"
+                        onClick={() => {
+                          if (item.category === "locked-task") {
+                            setTasks((current) =>
+                              current.filter(
+                                (entry) =>
+                                  !(
+                                    entry.is_locked &&
+                                    entry.title === item.title &&
+                                    timeToDecimal(entry.scheduled_start_time) === item.start &&
+                                    timeToDecimal(entry.scheduled_end_time) === item.end
+                                  )
+                              )
+                            );
+                            return;
+                          }
+                          setCommitments((current) => current.filter((entry) => entry !== item));
+                        }}
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </article>
+              <article className="card">
+                <div className="section-title">Deadline Tasks</div>
+                <div className="tag-row">
+                  {activeWeekTasks.map((item, index) => (
+                    <div className="tag tag-task" key={`${item.title}-${index}`}>
+                      <span>{item.title} · due {formatDeadline(item)} · {item.duration}h{item.is_locked ? " · fixed" : ""}</span>
+                      <button className="tag-remove" type="button" onClick={() => setTasks((current) => current.filter((entry) => entry !== item))}>
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </article>
             </section>
 
             <article className="card">
@@ -547,6 +564,41 @@ function App() {
           </div>
         )}
       </main>
+      {composerOpen ? (
+        <div className="modal-overlay" onClick={closeComposer}>
+          <div className="modal-card" onClick={(event) => event.stopPropagation()}>
+            <div className="section-title">{composer.mode === "slot" ? "Create Schedule Block" : "Create Deadline Task"}</div>
+            <div className="form-grid two-up">
+              {composer.mode === "slot" ? (
+                <Field label="Block type">
+                  <select value={composer.type} onChange={(event) => setComposer((current) => ({ ...current, type: event.target.value }))}>
+                    <option value="class">Class</option>
+                    <option value="work">Work</option>
+                    <option value="task">Fixed Task</option>
+                  </select>
+                </Field>
+              ) : null}
+              <Field label="Title">
+                <input value={composer.title} placeholder="Add a title" onChange={(event) => setComposer((current) => ({ ...current, title: event.target.value }))} />
+              </Field>
+              {composer.mode === "slot" ? (
+                <>
+                  <DateField label="Date" value={composer.commitment_date} onChange={(value) => setComposer((current) => ({ ...current, commitment_date: value, deadline_date: current.type === "task" ? value : current.deadline_date }))} />
+                  <TimeField label="Start" value={composer.start_time} onChange={(value) => setComposer((current) => ({ ...current, start_time: value }))} />
+                  <TimeField label="End" value={composer.end_time} onChange={(value) => setComposer((current) => ({ ...current, end_time: value, duration: syncDuration(current.start_time, value, current.duration) }))} />
+                </>
+              ) : null}
+              <NumberField label="Duration (hours)" min="0.25" step="0.25" value={composer.duration} onChange={(value) => setComposer((current) => ({ ...current, duration: value }))} />
+              <DateField label="Deadline date" value={composer.deadline_date} onChange={(value) => setComposer((current) => ({ ...current, deadline_date: value }))} />
+              <TimeField label="Deadline time" value={composer.deadline_time} onChange={(value) => setComposer((current) => ({ ...current, deadline_time: value }))} />
+            </div>
+            <div className="modal-actions">
+              <button className="btn btn-ghost" type="button" onClick={closeComposer}>Cancel</button>
+              <button className="btn btn-primary" type="button" onClick={saveComposer}>Save Block</button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </>
   );
 }
@@ -563,6 +615,21 @@ function toneClass(tone) {
   if (tone === "danger") return "tone-danger";
   if (tone === "safe") return "tone-safe";
   return "tone-neutral";
+}
+
+function decimalToTimeString(value) {
+  const hour = Math.floor(value);
+  const minute = Math.round((value - hour) * 60);
+  return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+}
+
+function syncDuration(startTime, endTime, fallback) {
+  const start = timeToDecimal(startTime);
+  const end = timeToDecimal(endTime);
+  if (start === null || end === null || end <= start) {
+    return fallback;
+  }
+  return Number((end - start).toFixed(2));
 }
 
 export default App;

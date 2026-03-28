@@ -565,6 +565,33 @@ select {
   color: var(--lavender);
 }
 
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(10, 14, 22, 0.62);
+  backdrop-filter: blur(8px);
+  display: grid;
+  place-items: center;
+  z-index: 40;
+  padding: 1.5rem;
+}
+
+.modal-card {
+  width: min(720px, 100%);
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  padding: 1.25rem 1.5rem;
+  box-shadow: 0 28px 60px rgba(0, 0, 0, 0.3);
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
 .insight {
   display: flex;
   align-items: flex-start;
