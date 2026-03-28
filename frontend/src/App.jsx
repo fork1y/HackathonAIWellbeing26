@@ -24,10 +24,9 @@ import { buildApiPayload, buildDisplayCommitments, buildPreviewCalendar, filterB
 function createComposerState(weekStart, overrides = {}) {
   return {
     mode: "slot",
-    type: "task",
+    type: "class",
     title: "",
     duration: 1,
-    is_locked: true,
     commitment_date: toDateInputValue(weekStart),
     start_time: "09:00",
     end_time: "10:00",
@@ -117,7 +116,7 @@ function App() {
       return;
     }
 
-    if (composer.mode === "slot" && (composer.type === "class" || composer.type === "work")) {
+    if (composer.mode === "slot") {
       const start = timeToDecimal(composer.start_time);
       const end = timeToDecimal(composer.end_time);
       const commitmentDay = dateToDay(composer.commitment_date);
@@ -164,20 +163,8 @@ function App() {
       deadline_day: deadlineDay,
       deadline_date: composer.deadline_date,
       deadline_time: composer.deadline_time,
-      is_locked: composer.mode === "slot" || composer.is_locked,
-      scheduled_date: composer.commitment_date,
-      scheduled_start_time: composer.start_time,
-      scheduled_end_time: composer.end_time,
+      is_locked: false,
     };
-
-    if (nextTask.is_locked) {
-      const scheduledStart = timeToDecimal(nextTask.scheduled_start_time);
-      const scheduledEnd = timeToDecimal(nextTask.scheduled_end_time);
-      if (scheduledStart === null || scheduledEnd === null || scheduledEnd <= scheduledStart) {
-        setError("Fixed task end time must be later than start time.");
-        return;
-      }
-    }
 
     setTasks((current) => [...current, nextTask]);
     closeComposer();
@@ -217,13 +204,12 @@ function App() {
     setComposer(
       createComposerState(selectedWeekStart, {
         mode: "slot",
-        type: "task",
+        type: "class",
         title: "",
         commitment_date: selection.date,
         start_time: decimalToTimeString(selection.start),
         end_time: decimalToTimeString(selection.end),
         deadline_date: selection.date,
-        is_locked: true,
       })
     );
     setComposerOpen(true);
@@ -235,7 +221,6 @@ function App() {
       createComposerState(selectedWeekStart, {
         mode: "deadline",
         type: "task",
-        is_locked: false,
       })
     );
     setComposerOpen(true);
@@ -379,7 +364,8 @@ function App() {
 
             <article className="card card-stretch">
               <div className="section-title">Weekly Planner</div>
-              <p className="helper-copy">Click directly on the calendar to create a class, work block, or fixed task. Use `Add Deadline Task` for flexible assignments.</p>
+              <p className="helper-copy">Click directly on the calendar to create a class or work block. Use `Add Deadline Task` for flexible assignments.</p>
+              <p className="helper-copy">Click directly on the calendar to create a class or work block. Use `Add Deadline Task` for flexible assignments.</p>
               <TimelineCalendar blocks={schedulePreview} weekStart={selectedWeekStart} onCreateBlock={handleCalendarQuickAdd} />
             </article>
 
@@ -420,12 +406,12 @@ function App() {
               <article className="card">
                 <div className="section-title">Deadline Tasks</div>
                 <div className="tag-row">
-                  {activeWeekTasks.map((item, index) => (
-                    <div className="tag tag-task" key={`${item.title}-${index}`}>
-                      <span>{item.title} · due {formatDeadline(item)} · {item.duration}h{item.is_locked ? " · fixed" : ""}</span>
-                      <button className="tag-remove" type="button" onClick={() => setTasks((current) => current.filter((entry) => entry !== item))}>
-                        ×
-                      </button>
+                    {activeWeekTasks.map((item, index) => (
+                      <div className="tag tag-task" key={`${item.title}-${index}`}>
+                        <span>{item.title} · due {formatDeadline(item)} · {item.duration}h</span>
+                        <button className="tag-remove" type="button" onClick={() => setTasks((current) => current.filter((entry) => entry !== item))}>
+                          ×
+                        </button>
                     </div>
                   ))}
                 </div>
@@ -574,7 +560,6 @@ function App() {
                   <select value={composer.type} onChange={(event) => setComposer((current) => ({ ...current, type: event.target.value }))}>
                     <option value="class">Class</option>
                     <option value="work">Work</option>
-                    <option value="task">Fixed Task</option>
                   </select>
                 </Field>
               ) : null}
