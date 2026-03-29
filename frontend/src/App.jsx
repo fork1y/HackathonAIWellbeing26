@@ -365,7 +365,6 @@ function App() {
             <article className="card card-stretch">
               <div className="section-title">Weekly Planner</div>
               <p className="helper-copy">Click directly on the calendar to create a class or work block. Use `Add Deadline Task` for flexible assignments.</p>
-              <p className="helper-copy">Click directly on the calendar to create a class or work block. Use `Add Deadline Task` for flexible assignments.</p>
               <TimelineCalendar blocks={schedulePreview} weekStart={selectedWeekStart} onCreateBlock={handleCalendarQuickAdd} />
             </article>
 
