@@ -23,7 +23,6 @@ import { buildApiPayload, buildDisplayCommitments, buildPreviewCalendar, filterB
 
 function createComposerState(weekStart, overrides = {}) {
   return {
-    mode: "slot",
     type: "class",
     title: "",
     duration: 1,
@@ -116,7 +115,7 @@ function App() {
       return;
     }
 
-    if (composer.mode === "slot") {
+    if (composer.type !== "task") {
       const start = timeToDecimal(composer.start_time);
       const end = timeToDecimal(composer.end_time);
       const commitmentDay = dateToDay(composer.commitment_date);
@@ -194,24 +193,14 @@ function App() {
   function handleCalendarQuickAdd(selection) {
     setComposer(
       createComposerState(selectedWeekStart, {
-        mode: "slot",
         type: "class",
         title: "",
         commitment_date: selection.date,
         start_time: decimalToTimeString(selection.start),
         end_time: decimalToTimeString(selection.end),
         deadline_date: selection.date,
-      })
-    );
-    setComposerOpen(true);
-    setError("");
-  }
-
-  function openDeadlineTaskComposer() {
-    setComposer(
-      createComposerState(selectedWeekStart, {
-        mode: "deadline",
-        type: "task",
+        deadline_time: decimalToTimeString(selection.end),
+        duration: 1,
       })
     );
     setComposerOpen(true);
@@ -385,15 +374,12 @@ function App() {
                 >
                   This Week
                 </button>
-                <button className="btn btn-primary" type="button" onClick={openDeadlineTaskComposer}>
-                  Add Deadline Task
-                </button>
               </div>
             </section>
 
             <article className="card card-stretch">
               <div className="section-title">Weekly Planner</div>
-              <p className="helper-copy">Click directly on the calendar to create a class or work block. Use `Add Deadline Task` for flexible assignments.</p>
+              <p className="helper-copy">Click directly on the calendar to open the popup, then choose whether you are adding a class, work block, or deadline task.</p>
               <TimelineCalendar
                 blocks={schedulePreview}
                 weekStart={selectedWeekStart}
@@ -586,22 +572,21 @@ function App() {
       {composerOpen ? (
         <div className="modal-overlay" onClick={closeComposer}>
           <div className="modal-card" onClick={(event) => event.stopPropagation()}>
-            <div className="section-title">{composer.mode === "slot" ? "Create Schedule Block" : "Create Deadline Task"}</div>
+            <div className="section-title">Create Schedule Item</div>
             <div className="form-grid two-up">
-              {composer.mode === "slot" ? (
-                <Field label="Block type">
-                  <select value={composer.type} onChange={(event) => setComposer((current) => ({ ...current, type: event.target.value }))}>
-                    <option value="class">Class</option>
-                    <option value="work">Work</option>
-                  </select>
-                </Field>
-              ) : null}
+              <Field label="Item type">
+                <select value={composer.type} onChange={(event) => setComposer((current) => ({ ...current, type: event.target.value }))}>
+                  <option value="class">Class</option>
+                  <option value="work">Work</option>
+                  <option value="task">Deadline task</option>
+                </select>
+              </Field>
               <Field label="Title">
                 <input value={composer.title} placeholder="Add a title" onChange={(event) => setComposer((current) => ({ ...current, title: event.target.value }))} />
               </Field>
-              {composer.mode === "slot" ? (
+              {composer.type !== "task" ? (
                 <>
-                  <DateField label="Date" value={composer.commitment_date} onChange={(value) => setComposer((current) => ({ ...current, commitment_date: value, deadline_date: current.type === "task" ? value : current.deadline_date }))} />
+                  <DateField label="Date" value={composer.commitment_date} onChange={(value) => setComposer((current) => ({ ...current, commitment_date: value }))} />
                   <TimeField label="Start" value={composer.start_time} onChange={(value) => setComposer((current) => ({ ...current, start_time: value }))} />
                   <TimeField label="End" value={composer.end_time} onChange={(value) => setComposer((current) => ({ ...current, end_time: value, duration: syncDuration(current.start_time, value, current.duration) }))} />
                 </>
@@ -612,7 +597,7 @@ function App() {
             </div>
             <div className="modal-actions">
               <button className="btn btn-ghost" type="button" onClick={closeComposer}>Cancel</button>
-              <button className="btn btn-primary" type="button" onClick={saveComposer}>Save Block</button>
+              <button className="btn btn-primary" type="button" onClick={saveComposer}>Save Item</button>
             </div>
           </div>
         </div>
