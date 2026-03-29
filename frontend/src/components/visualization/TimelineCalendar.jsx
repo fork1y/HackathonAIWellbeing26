@@ -1,7 +1,7 @@
 import { CALENDAR_START_HOUR, CALENDAR_TOTAL_HOURS, DAYS, HOURS } from "../../lib/constants";
 import { addDays, formatHour, formatShortDate, hourToTopPercent, toDateInputValue } from "../../lib/dateTime";
 
-export function TimelineCalendar({ blocks, weekStart, onCreateBlock }) {
+export function TimelineCalendar({ blocks, weekStart, onCreateBlock, onRemoveBlock }) {
   function handleColumnClick(day, event) {
     if (!onCreateBlock) return;
     const rect = event.currentTarget.getBoundingClientRect();
@@ -46,7 +46,7 @@ export function TimelineCalendar({ blocks, weekStart, onCreateBlock }) {
               <div key={`${day}-${hour}`} className="timeline-hour-line" style={{ top: `${hourToTopPercent(hour)}%` }} />
             ))}
             {(blocks[day] || []).map((block, index) => (
-              <TimelineBlock key={`${day}-${block.label}-${index}`} block={block} />
+              <TimelineBlock key={`${day}-${block.label}-${index}`} block={block} onRemove={onRemoveBlock} />
             ))}
           </div>
         ))}
@@ -55,10 +55,20 @@ export function TimelineCalendar({ blocks, weekStart, onCreateBlock }) {
   );
 }
 
-function TimelineBlock({ block }) {
+function TimelineBlock({ block, onRemove }) {
+  function handleRemove(event) {
+    event.stopPropagation();
+    onRemove?.(block);
+  }
+
   if (typeof block.start !== "number" || typeof block.end !== "number") {
     return (
       <div className={`timeline-task-pill timeline-${block.type}`}>
+        {onRemove && block.source ? (
+          <button className="timeline-remove" type="button" aria-label={`Remove ${block.label}`} onClick={handleRemove}>
+            ×
+          </button>
+        ) : null}
         <strong>{block.label}</strong>
         {block.time ? <span>{block.time}</span> : null}
       </div>
@@ -79,6 +89,11 @@ function TimelineBlock({ block }) {
         borderStyle: block.locked ? "dashed" : undefined,
       }}
     >
+      {onRemove && block.source ? (
+        <button className="timeline-remove" type="button" aria-label={`Remove ${block.label}`} onClick={handleRemove}>
+          ×
+        </button>
+      ) : null}
       <strong>{block.label}</strong>
       <span>{formatHour(block.start)}-{formatHour(block.end)}{block.locked ? " · Fixed" : ""}</span>
     </div>

@@ -1065,6 +1065,11 @@ select {
   box-shadow: 0 10px 22px rgba(0, 0, 0, 0.16);
 }
 
+.timeline-block,
+.timeline-task-pill {
+  padding-right: 1.8rem;
+}
+
 .timeline-block strong,
 .timeline-task-pill strong {
   font-size: 0.76rem;
@@ -1079,6 +1084,29 @@ select {
 .timeline-task-pill {
   position: relative;
   margin: 0.5rem 0.45rem 0;
+}
+
+.timeline-remove {
+  position: absolute;
+  top: 0.35rem;
+  right: 0.35rem;
+  width: 1.15rem;
+  height: 1.15rem;
+  border: none;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  line-height: 1;
+  font-size: 0.9rem;
+  background: color-mix(in srgb, var(--surface) 72%, transparent);
+  color: currentColor;
+  opacity: 0.8;
+}
+
+.timeline-remove:hover {
+  opacity: 1;
+  background: color-mix(in srgb, currentColor 14%, var(--surface));
 }
 
 .timeline-class {

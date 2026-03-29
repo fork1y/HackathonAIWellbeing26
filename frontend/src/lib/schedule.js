@@ -126,6 +126,8 @@ export function buildPreviewCalendar(commitments, tasks) {
       end: item.end,
       time: `${formatHour(item.start)}-${formatHour(item.end)}`,
       locked: isLockedTask,
+      source: item,
+      sourceType: isLockedTask ? "locked-task" : "commitment",
     });
   });
 
@@ -134,6 +136,8 @@ export function buildPreviewCalendar(commitments, tasks) {
       label: `${task.title} due`,
       type: "task",
       time: `${formatDeadline(task)} · ${task.duration}h`,
+      source: task,
+      sourceType: "task",
     });
   });
 

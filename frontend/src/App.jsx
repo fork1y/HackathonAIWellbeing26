@@ -191,15 +191,6 @@ function App() {
   const optimizedScore = afterAssessment?.score ?? 0;
   const savedPoints = analysis ? Math.max(riskScore - optimizedScore, 0) : 0;
 
-  const beforeDaily = toDailyBlocks(beforePlan?.scheduled_tasks || [], displayCommitments);
-  const afterDaily = toDailyBlocks(afterPlan?.scheduled_tasks || [], displayCommitments);
-  const beforeLoads = toDayLoads(beforeAssessment?.metrics?.daily_hours);
-  const afterLoads = toDayLoads(afterAssessment?.metrics?.daily_hours);
-  const schedulePreview = buildPreviewCalendar(displayCommitments, activeWeekTasks);
-
-  const filteredBefore = filterBlocks(beforeDaily, activeFilter);
-  const filteredAfter = filterBlocks(afterDaily, activeFilter);
-
   function handleCalendarQuickAdd(selection) {
     setComposer(
       createComposerState(selectedWeekStart, {
@@ -232,6 +223,44 @@ function App() {
     setComposer(createComposerState(selectedWeekStart));
     setError("");
   }
+
+  function handlePreviewRemove(block) {
+    if (!block?.source || !block?.sourceType) return;
+
+    if (block.sourceType === "commitment") {
+      setCommitments((current) => current.filter((entry) => entry !== block.source));
+      return;
+    }
+
+    if (block.sourceType === "task") {
+      setTasks((current) => current.filter((entry) => entry !== block.source));
+      return;
+    }
+
+    if (block.sourceType === "locked-task") {
+      setTasks((current) =>
+        current.filter(
+          (entry) =>
+            !(
+              entry.is_locked &&
+              entry.title === block.source.title &&
+              entry.scheduled_date === block.source.scheduled_date &&
+              timeToDecimal(entry.scheduled_start_time) === block.source.start &&
+              timeToDecimal(entry.scheduled_end_time) === block.source.end
+            )
+        )
+      );
+    }
+  }
+
+  const beforeDaily = toDailyBlocks(beforePlan?.scheduled_tasks || [], displayCommitments);
+  const afterDaily = toDailyBlocks(afterPlan?.scheduled_tasks || [], displayCommitments);
+  const beforeLoads = toDayLoads(beforeAssessment?.metrics?.daily_hours);
+  const afterLoads = toDayLoads(afterAssessment?.metrics?.daily_hours);
+  const schedulePreview = buildPreviewCalendar(displayCommitments, activeWeekTasks);
+
+  const filteredBefore = filterBlocks(beforeDaily, activeFilter);
+  const filteredAfter = filterBlocks(afterDaily, activeFilter);
 
   return (
     <>
@@ -365,7 +394,12 @@ function App() {
             <article className="card card-stretch">
               <div className="section-title">Weekly Planner</div>
               <p className="helper-copy">Click directly on the calendar to create a class or work block. Use `Add Deadline Task` for flexible assignments.</p>
-              <TimelineCalendar blocks={schedulePreview} weekStart={selectedWeekStart} onCreateBlock={handleCalendarQuickAdd} />
+              <TimelineCalendar
+                blocks={schedulePreview}
+                weekStart={selectedWeekStart}
+                onCreateBlock={handleCalendarQuickAdd}
+                onRemoveBlock={handlePreviewRemove}
+              />
             </article>
 
             <section className="grid-2">
