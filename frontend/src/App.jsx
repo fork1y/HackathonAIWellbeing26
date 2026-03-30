@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { DateField, Field, NumberField, TimeField, TimePreferenceField } from "./components/form/FormFields";
 import { ScoreRing, InsightCard, StatCard, StepCard } from "./components/ui/Cards";
-import { ScoreComparisonMeter, WeeklyLoadHeatmap, WorkloadDeltaChart } from "./components/visualization/Charts";
+import { RiskBreakdown, ScoreComparisonMeter, WeeklyLoadHeatmap, WorkloadDeltaChart } from "./components/visualization/Charts";
 import { TimelineCalendar } from "./components/visualization/TimelineCalendar";
 import {
   buildWeekOptions,
@@ -465,7 +465,7 @@ function App() {
                 {loading ? "Analyzing..." : "Analyze and Optimize"}
               </button>
               <button className="btn btn-ghost" type="button" onClick={resetSample}>
-                Reset Sample
+                Reset Schedule
               </button>
             </div>
 
