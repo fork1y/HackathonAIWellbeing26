@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { DateField, Field, NumberField, TimeField, TimePreferenceField } from "./components/form/FormFields";
 import { ScoreRing, InsightCard, StatCard, StepCard } from "./components/ui/Cards";
-import { RiskBreakdown, WorkloadChart } from "./components/visualization/Charts";
+import { ScoreComparisonMeter, WeeklyLoadHeatmap, WorkloadDeltaChart } from "./components/visualization/Charts";
 import { TimelineCalendar } from "./components/visualization/TimelineCalendar";
 import {
   buildWeekOptions,
@@ -250,6 +250,13 @@ function App() {
 
   const filteredBefore = filterBlocks(beforeDaily, activeFilter);
   const filteredAfter = filterBlocks(afterDaily, activeFilter);
+  const beforeTotalHours = sumHours(beforeLoads);
+  const afterTotalHours = sumHours(afterLoads);
+  const netChange = Number((beforeTotalHours - afterTotalHours).toFixed(1));
+  const improvedDays = countImprovedDays(beforeLoads, afterLoads);
+  const beforePeak = findPeakDay(beforeLoads);
+  const afterPeak = findPeakDay(afterLoads);
+  const efficiencyGain = beforeTotalHours > 0 ? Math.round((netChange / beforeTotalHours) * 100) : 0;
 
   return (
     <>
@@ -525,6 +532,41 @@ function App() {
               </div>
             ) : (
               <>
+                <section className="compare-kpi-grid">
+                  <article className="analytics-kpi danger">
+                    <div className="analytics-kpi-label">Baseline Score</div>
+                    <div className="analytics-kpi-value">{riskScore}</div>
+                    <div className="analytics-kpi-foot">{beforeAssessment.level} risk profile</div>
+                  </article>
+                  <article className="analytics-kpi safe">
+                    <div className="analytics-kpi-label">Optimized Score</div>
+                    <div className="analytics-kpi-value">{optimizedScore}</div>
+                    <div className="analytics-kpi-foot">{afterAssessment.level} optimized state</div>
+                  </article>
+                  <article className="analytics-kpi blue">
+                    <div className="analytics-kpi-label">Hours Rebalanced</div>
+                    <div className="analytics-kpi-value">{netChange > 0 ? `-${netChange}h` : `${netChange}h`}</div>
+                    <div className="analytics-kpi-foot">{efficiencyGain}% lighter weekly load</div>
+                  </article>
+                  <article className="analytics-kpi amber">
+                    <div className="analytics-kpi-label">Improved Days</div>
+                    <div className="analytics-kpi-value">{improvedDays}/7</div>
+                    <div className="analytics-kpi-foot">Peak shifted from {beforePeak.day} to {afterPeak.day}</div>
+                  </article>
+                </section>
+
+                <section className="analytics-top-grid">
+                  <article className="card analytics-panel">
+                    <div className="compare-label">Score Comparison</div>
+                    <ScoreComparisonMeter beforeScore={riskScore} afterScore={optimizedScore} />
+                    <div className="analytics-note">The optimizer reduces score by {savedPoints} points while keeping deadlines intact.</div>
+                  </article>
+                  <article className="card analytics-panel">
+                    <div className="compare-label">Weekly Load Heatmap</div>
+                    <WeeklyLoadHeatmap before={beforeLoads} after={afterLoads} />
+                  </article>
+                </section>
+
                 <div className="chip-row chips-filter">
                   {[
                     { id: "all", label: "All" },
@@ -544,24 +586,41 @@ function App() {
                 </div>
 
                 <section className="comparison comparison-top">
-                  <article className="card">
+                  <article className="card analytics-panel compare-panel before">
                     <div className={`compare-label ${getTone(riskScore) === "safe" ? "compare-good" : ""}`}>Before · Risk Score {riskScore}</div>
                     <TimelineCalendar blocks={filteredBefore} weekStart={selectedWeekStart} />
                   </article>
-                  <article className="card">
+                  <article className="card analytics-panel compare-panel after">
                     <div className="compare-label compare-good">After · Risk Score {optimizedScore}</div>
                     <TimelineCalendar blocks={filteredAfter} weekStart={selectedWeekStart} />
                   </article>
                 </section>
 
                 <section className="comparison">
-                  <article className="card">
-                    <div className="compare-label">Daily Workload Before</div>
-                    <WorkloadChart data={beforeLoads} getTone={getTone} toneClass={toneClass} />
+                  <article className="card analytics-panel">
+                    <div className="compare-label">Daily Workload Delta</div>
+                    <WorkloadDeltaChart before={beforeLoads} after={afterLoads} />
                   </article>
-                  <article className="card">
-                    <div className="compare-label compare-good">Daily Workload After</div>
-                    <WorkloadChart data={afterLoads} getTone={getTone} toneClass={toneClass} />
+                  <article className="card analytics-panel analytics-summary-panel">
+                    <div className="compare-label">Load Summary</div>
+                    <div className="analytics-summary-stats">
+                      <div className="analytics-summary-item">
+                        <span>Baseline Total</span>
+                        <strong>{beforeTotalHours}h</strong>
+                      </div>
+                      <div className="analytics-summary-item">
+                        <span>Optimized Total</span>
+                        <strong>{afterTotalHours}h</strong>
+                      </div>
+                      <div className="analytics-summary-item">
+                        <span>Peak Before</span>
+                        <strong>{beforePeak.day} · {beforePeak.hours}h</strong>
+                      </div>
+                      <div className="analytics-summary-item">
+                        <span>Peak After</span>
+                        <strong>{afterPeak.day} · {afterPeak.hours}h</strong>
+                      </div>
+                    </div>
                   </article>
                 </section>
               </>
@@ -634,5 +693,22 @@ function syncDuration(startTime, endTime, fallback) {
   }
   return Number((end - start).toFixed(2));
 }
+
+function sumHours(values) {
+  return Number(values.reduce((total, value) => total + Number(value || 0), 0).toFixed(1));
+}
+
+function countImprovedDays(before, after) {
+  return before.reduce((count, hours, index) => count + (after[index] < hours ? 1 : 0), 0);
+}
+
+function findPeakDay(values) {
+  return values.reduce(
+    (best, hours, index) => (hours > best.hours ? { day: DAY_LABELS[index], hours } : best),
+    { day: DAY_LABELS[0], hours: values[0] ?? 0 }
+  );
+}
+
+const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 export default App;
